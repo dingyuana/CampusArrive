@@ -1,0 +1,34 @@
+{
+  "name": "checkin-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "topic.prefix": "campusarrive.cdc",
+
+    "database.hostname": "localhost",
+    "database.port": "3306",
+    "database.user": "debezium",
+    "database.password": "dbz_password",
+    "database.server.id": "184054",
+    "database.include.list": "campus_arrive",
+    "table.include.list": "campus_arrive.checkin_record,campus_arrive.student_info,campus_arrive.dorm_allocation,campus_arrive.card_account,campus_arrive.id_mapping",
+
+    "schema.history.internal.kafka.bootstrap.servers": "localhost:9092",
+    "schema.history.internal.kafka.topic": "schemahistory.checkin",
+
+    "snapshot.mode": "initial",
+    "snapshot.locking.mode": "minimal",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+
+    "tombstones.on.delete": "true",
+    "provide.transaction.metadata": "true",
+
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.drop.tombstones": "false",
+    "transforms.unwrap.delete.handling.mode": "rewrite"
+  }
+}

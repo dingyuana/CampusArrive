@@ -5,10 +5,22 @@ spring:
   application:
     name: integration-service
   rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    # MW-2.2: Publisher Confirm 与 Return 回调
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    # 消费者手动 ACK
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 10
+        retry:
+          enabled: false  # 由应用层实现阶梯重试，不使用 Spring AMQP 内置重试
 
 management:
   endpoints:
@@ -16,14 +28,38 @@ management:
       exposure:
         include: health,info
 
-# CDC 配置（INFRA-1.2 / MW-2.3 实现后填充）
+campusarrive:
+  rabbitmq:
+    topology:
+      enabled: true
+  # MW-2.3: CDC 数据同步配置
+  cdc:
+    enabled: true
+    retry:
+      max-attempts: 3
+      delays: 10s, 30s, 60s
+    sync:
+      batch-size: 1000
+      p95-target-ms: 5000
+    offset:
+      store-type: memory
+    sink:
+      edu-system-url: http://edu-service:8082/api
+      dorm-system-url: http://dorm-service:8083/api
+      card-system-url: http://card-service:8085/api
+
+# MW-2.3: Debezium CDC 连接器配置（Kafka Connect REST API 注册用）
 debezium:
   connector:
     name: checkin-connector
     database-hostname: localhost
     database-port: 3306
     database-user: debezium
-    database-password: ""
+    database-password: "dbz_password"
     database-server-id: 184054
     database-include-list: campus_arrive
-    table-include-list: campus_arrive.checkin_*
+    table-include-list: campus_arrive.checkin_record,campus_arrive.student_info,campus_arrive.dorm_allocation,campus_arrive.card_account,campus_arrive.id_mapping
+    topic-prefix: campusarrive.cdc
+    snapshot-mode: initial
+    schema-history-kafka-servers: localhost:9092
+    schema-history-kafka-topic: schemahistory.checkin

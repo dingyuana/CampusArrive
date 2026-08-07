@@ -2,3 +2,13 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+  main:
+    allow-bean-definition-overriding: true
+
+campusarrive:
+  rabbitmq:
+    topology:
+      enabled: false
+  # MW-2.3: 测试环境禁用 CDC 模块（测试类直接构造对象，不依赖 Spring 容器）
+  cdc:
+    enabled: false
