@@ -54,7 +54,12 @@ public final class MockBackendSupport {
         String body = "{\"service\":\"" + service + "\""
                 + ",\"request_id\":\"" + escape(requestId) + "\""
                 + ",\"role\":\"" + escape(role) + "\""
-                + ",\"student_id\":\"" + escape(studentId) + "\"}";
+                + ",\"student_id\":\"" + escape(studentId) + "\""
+                + ",\"idCard\":\"110101199001011234\""
+                + ",\"phone\":\"13812345678\""
+                + ",\"name\":\"张三丰\""
+                + ",\"email\":\"zhangsan@example.com\""
+                + "}";
 
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json;charset=UTF-8");
