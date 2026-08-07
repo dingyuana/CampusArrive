@@ -1,0 +1,29 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: integration-service
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+# CDC 配置（INFRA-1.2 / MW-2.3 实现后填充）
+debezium:
+  connector:
+    name: checkin-connector
+    database-hostname: localhost
+    database-port: 3306
+    database-user: debezium
+    database-password: ""
+    database-server-id: 184054
+    database-include-list: campus_arrive
+    table-include-list: campus_arrive.checkin_*

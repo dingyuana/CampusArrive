@@ -1,0 +1,17 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: parent-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+# JWT 配置（SEC-6.1 实现后替换为密钥管理方案）
+jwt:
+  secret: campus-arrive-parent-jwt-secret-change-in-production
+  expiration-days: 30

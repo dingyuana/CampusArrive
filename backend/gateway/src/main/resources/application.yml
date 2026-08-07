@@ -1,0 +1,31 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway
+  cloud:
+    gateway:
+      routes:
+        - id: checkin-service
+          uri: lb://checkin-service
+          predicates:
+            - Path=/api/v1/checkin/**
+        - id: ai-service
+          uri: lb://ai-service
+          predicates:
+            - Path=/api/v1/ai/**
+        - id: parent-service
+          uri: lb://parent-service
+          predicates:
+            - Path=/api/v1/parent/**
+        - id: integration-service
+          uri: lb://integration-service
+          predicates:
+            - Path=/api/v1/integration/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway

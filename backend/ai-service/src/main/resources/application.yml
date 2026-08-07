@@ -1,0 +1,23 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: ai-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+# MaxKB 对接配置（INFRA-1.3 部署后填充）
+maxkb:
+  base-url: http://localhost:8080
+  api-key: ""
+
+# DeepSeek 对接配置（INFRA-1.3 部署后填充）
+deepseek:
+  base-url: http://localhost:11434
+  model: deepseek-v4
+  timeout-ms: 30000
