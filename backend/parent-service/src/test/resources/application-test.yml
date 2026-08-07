@@ -1,26 +1,22 @@
 server:
-  port: 8084
+  port: 0
 
 spring:
   application:
     name: parent-service
+  main:
+    allow-bean-definition-overriding: true
   jackson:
     property-naming-strategy: SNAKE_CASE
 
-# 家长端服务配置
 parent:
-  # JWT 签发配置（FR-03-02）
   jwt-secret: campus-arrive-parent-jwt-secret-key-2026-hs256-signing
   jwt-issuer: freshman-checkin-system
   jwt-audience: parent-h5
-  # 家长 JWT 有效期：30 天 = 2592000 秒
   jwt-expiry-seconds: 2592000
-  # 验证码配置（FR-03-01）
   code-length: 6
   code-expiry-seconds: 300
-  # 验证码错误锁定：5 次错误后锁定 30 分钟
   max-error-count: 5
   lock-duration-seconds: 1800
-  # 限频配置：同一手机号 60 秒内仅允许 1 次验证码请求
   rate-limit-window-seconds: 60
   rate-limit-max-requests: 1
