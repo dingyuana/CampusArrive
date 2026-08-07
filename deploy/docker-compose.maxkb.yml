@@ -1,10 +1,16 @@
 # =============================================================================
-# 微迎新 CampusArrive — MaxKB + PostgreSQL/pgvector 独立编排
+# 微迎新 CampusArrive — MaxKB + PostgreSQL/pgvector 独立编排 (INFRA-1.3)
 # 部署于服务器A (AI 专用)。与主编排共享 campus-ai 外部网络，供 ai-service 调用。
-#   maxkb            1panel/maxkb:latest        -> 宿主机 8088 (管理 UI)
+#   maxkb             1panel/maxkb:v1.10.7-lts  -> 宿主机 8088 (管理 UI)
 #   postgres-pgvector pgvector/pgvector:pg16     -> 5432 仅 campus-ai 内部
 # 网络：campus-ai (外部，由 deploy.sh 创建)
 # 数据卷统一挂载到 ./data/
+#
+# MaxKB v1.10 LTS 说明：
+#   - 镜像 tag 固定为 v1.10.7-lts，不使用 latest，保证可复现部署
+#   - 外部 PG 连接环境变量前缀为 DB_（DB_NAME/DB_HOST/DB_PORT/DB_USER/DB_PASSWORD）
+#   - SECRET_KEY 通过 .env 注入，用于会话签名与敏感数据加密
+#   - DeepSeek 凭据透传至容器，供 MaxKB 内部 LLM 适配器读取（控制台也可手动配置）
 # =============================================================================
 name: campusarrive-maxkb
 
@@ -17,9 +23,11 @@ x-logging: &default-logging
 services:
   # --------------------------------------------------------------------------
   # MaxKB：知识库问答引擎（DeepSeek 作为后端 LLM，密钥在 MaxKB 控制台配置）
+  # v1.10 LTS 环境变量前缀为 DB_（连接外部 PG）；SECRET_KEY 用于会话签名。
+  # DeepSeek 凭据透传至容器环境，供 MaxKB 内部 LLM 适配器读取。
   # --------------------------------------------------------------------------
   maxkb:
-    image: 1panel/maxkb:latest
+    image: 1panel/maxkb:v1.10.7-lts
     container_name: campus-maxkb
     restart: unless-stopped
     env_file: .env
@@ -30,8 +38,13 @@ services:
       DB_USER: ${MAXKB_DB_USER:-maxkb}
       DB_PASSWORD: ${MAXKB_DB_PASSWORD}
       MAXKB_PORT: 8080
+      # 会话签名与敏感数据加密密钥，务必在 .env 中替换为 ≥32 字符随机串
+      SECRET_KEY: ${MAXKB_SECRET_KEY}
+      # DeepSeek API 透传（INFRA-1.3）：MaxKB 内部 LLM 适配器读取，控制台添加模型时复用
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
     ports:
-      - "8088:8080"               # MaxKB 管理 UI 对外端口
+      - "${MAXKB_PORT:-8088}:8080"   # MaxKB 管理 UI 对外端口（默认 8088，可经 .env 覆盖）
     volumes:
       - ./data/maxkb:/var/lib/maxkb
     networks:
@@ -40,7 +53,8 @@ services:
       postgres-pgvector:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health || exit 1"]
+      # UT-INFRA-007：MaxKB 根路径探活（v1.10 内置 HEALTHCHECK 之外的应用层校验）
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/ -o /dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

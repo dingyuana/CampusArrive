@@ -234,7 +234,7 @@ docker compose -f docker-compose.yml --env-file .env up -d --build
 | INFRA-1.1 | 项目骨架与 CI 流水线 | ✅ 已完成 | `2c59ce1` |
 | INFRA-1.2 | Docker 部署环境 | ✅ 已完成 | `9fce3fa` |
 | MW-2.1 | API 网关骨架与路由鉴权 | ✅ 已完成 | `9fce3fa` |
-| INFRA-1.3 | MaxKB + DeepSeek 部署 | ⏳ 待开发 | — |
+| INFRA-1.3 | MaxKB + DeepSeek 部署 | ✅ 已完成 | — |
 | MW-2.2 | RabbitMQ 事件链 | ⏳ 待开发 | — |
 | MW-2.3 | Debezium CDC 数据同步 | ⏳ 待开发 | — |
 
