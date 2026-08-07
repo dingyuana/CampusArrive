@@ -1,4 +1,37 @@
+# 测试环境配置：禁用 Redis 依赖（吊销检查用本地 Mock），路由由 MockRouteConfiguration
+# 以 Bean 形式指向 Mock 后端；生产路由在 GatewayConfig#routeLocator 中以 @Profile("!test") 排除。
+
+server:
+  port: 0
+
 spring:
   cloud:
     gateway:
+      # 额外保险：清空任何 YAML 路由（生产路由已通过 @Profile("!test") 排除）
       routes: []
+      # 测试环境禁用服务发现路由的默认探测，避免 lb:// 路由在无注册中心时报错
+      discovery:
+        locator:
+          enabled: false
+
+# 网关测试配置（密钥与 JwtTestHelper 保持一致）
+gateway:
+  jwt-secret: campus-arrive-jwt-secret-key-2026-hs256-signing-key
+  jwt-issuer: freshman-checkin-system
+  jwt-audiences:
+    - student-miniapp
+    - parent-h5
+    - admin-web
+    - counselor-web
+  whitelist:
+    - /actuator/**
+    - /api/v1/auth/login
+    - /api/v1/parent/bind
+  # 测试用限流规则：小桶 + 慢补充，确保连续请求能稳定触发 429（补充速率低，请求间隔内几乎不补充）
+  rate-limit:
+    - path-prefix: /api/v1/ai
+      bucket-size: 2
+      refill-rate-per-minute: 60
+    - path-prefix: /api/v1/parent/bind
+      bucket-size: 5
+      refill-rate-per-minute: 300

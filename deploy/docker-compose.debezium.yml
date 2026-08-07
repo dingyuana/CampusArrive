@@ -1,0 +1,120 @@
+# =============================================================================
+# 微迎新 CampusArrive — Debezium CDC 独立编排
+# 部署于服务器B (应用与中间件)。MySQL CDC 变更 -> Kafka。
+#   zookeeper        confluentinc/cp-zookeeper
+#   kafka            confluentinc/cp-kafka
+#   debezium-connect debezium/connect:latest   -> 8083 (REST 管理)
+# 网络：campus-data (外部，由 deploy.sh 创建，--internal 仅数据区互通)
+#   - zookeeper / kafka 仅接入 campus-data
+#   - debezium-connect 同时接入 campus-data (连 Kafka+MySQL) 与 campus-backend (暴露 8083 管理端口)
+# 数据卷统一挂载到 ./data/
+# =============================================================================
+name: campusarrive-debezium
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "3"
+
+services:
+  # --------------------------------------------------------------------------
+  # Zookeeper：Kafka 协调服务
+  # --------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: campus-zookeeper
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - ./data/zookeeper:/var/lib/zookeeper/data
+      - ./data/zookeeper-log:/var/lib/zookeeper/log
+    networks:
+      - campus-data
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 5 localhost 2181 | grep -q imok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+  # --------------------------------------------------------------------------
+  # Kafka：CDC 事件流存储
+  # --------------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: campus-kafka
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # 禁用机机端口广播外网，仅容器内通过服务名通信
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # 单节点关闭机机自我选举
+      CONFLUENT_SUPPORT_METRICS_ENABLE: "false"
+    volumes:
+      - ./data/kafka:/var/lib/kafka/data
+    networks:
+      - campus-data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging: *default-logging
+
+  # --------------------------------------------------------------------------
+  # Debezium Connect：注册 MySQL CDC Source Connector 的 REST 服务
+  # --------------------------------------------------------------------------
+  debezium-connect:
+    image: debezium/connect:2.7
+    container_name: campus-debezium-connect
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: campusarrive-debezium
+      CONFIG_STORAGE_TOPIC: debezium_connect_configs
+      OFFSET_STORAGE_TOPIC: debezium_connect_offsets
+      STATUS_STORAGE_TOPIC: debezium_connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+    ports:
+      - "8083:8083"               # Debezium Connect REST 管理端口
+    networks:
+      - campus-data               # 连接 Kafka / MySQL (MySQL 在 campus-data)
+      - campus-backend            # 暴露 8083 管理端口
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *default-logging
+
+networks:
+  campus-data:
+    external: true
+    name: campus-data
+  campus-backend:
+    external: true
+    name: campus-backend

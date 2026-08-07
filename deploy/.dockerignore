@@ -1,0 +1,14 @@
+# 构建上下文排除项，避免将无关/大体积文件送入 Docker 构建上下文
+.git
+.github
+.screenshots
+.trae-html-share-packages
+**/target/
+**/.idea/
+**/*.iml
+**/.vscode/
+deploy/data/
+deploy/logs/
+**/node_modules/
+*.log
+.DS_Store

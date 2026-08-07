@@ -36,6 +36,15 @@ credentials.json
 # Docker
 docker-compose.override.yml
 
+# Docker 部署运行时产物（INFRA-1.2）
+deploy/data/
+deploy/logs/
+# 环境专属密钥文件（.env.example 模板仍纳入版本库）
+.env.sit
+.env.uat
+.env.perf
+.env.prod
+
 # JaCoCo
 **/jacoco.exec
 **/jacoco-aggregate.exec

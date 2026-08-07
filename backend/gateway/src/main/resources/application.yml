@@ -6,26 +6,34 @@ spring:
     name: gateway
   cloud:
     gateway:
-      routes:
-        - id: checkin-service
-          uri: lb://checkin-service
-          predicates:
-            - Path=/api/v1/checkin/**
-        - id: ai-service
-          uri: lb://ai-service
-          predicates:
-            - Path=/api/v1/ai/**
-        - id: parent-service
-          uri: lb://parent-service
-          predicates:
-            - Path=/api/v1/parent/**
-        - id: integration-service
-          uri: lb://integration-service
-          predicates:
-            - Path=/api/v1/integration/**
+      # 路由定义见 GatewayConfig#routeLocator（RouteLocator Bean，FR-04-01）
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info,gateway
+
+# 网关专属配置（FR-04-01~04）
+gateway:
+  # JWT 签名密钥（HS256，生产环境应通过密钥管理服务注入）
+  jwt-secret: ${GATEWAY_JWT_SECRET:campus-arrive-jwt-secret-key-2026-hs256-signing-key}
+  jwt-issuer: freshman-checkin-system
+  jwt-audiences:
+    - student-miniapp
+    - parent-h5
+    - admin-web
+    - counselor-web
+  # 鉴权白名单（Ant 风格路径，无需 JWT）
+  whitelist:
+    - /actuator/**
+    - /api/v1/auth/login
+    - /api/v1/parent/bind
+  # 令牌桶限流规则
+  rate-limit:
+    - path-prefix: /api/v1/ai
+      bucket-size: 10
+      refill-rate-per-minute: 10
+    - path-prefix: /api/v1/parent/bind
+      bucket-size: 5
+      refill-rate-per-minute: 5

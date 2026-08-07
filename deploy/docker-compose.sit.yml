@@ -1,0 +1,58 @@
+# =============================================================================
+# 微迎新 CampusArrive — SIT 环境覆盖文件
+# 与 docker-compose.yml 合并使用：docker compose -f docker-compose.yml -f docker-compose.sit.yml
+# 覆盖内容：
+#   - 容器名加 -sit 后缀（与 uat/perf 共存主机时不冲突）
+#   - 端口映射改为高位端口（避免与 uat/perf 8080 等冲突）
+#   - SPRING_PROFILES_ACTIVE=sit
+#   - SIT 资源限制（限制内存便于 4C8G 单机跑全套）
+# 注意：覆盖 ports 使用 !override 显式替换（需 Docker Compose v2.24+）
+# =============================================================================
+services:
+  mysql:
+    container_name: campus-mysql-sit
+    environment:
+      SPRING_PROFILES_ACTIVE: sit
+    mem_limit: 1g
+
+  redis:
+    container_name: campus-redis-sit
+    mem_limit: 256m
+
+  rabbitmq:
+    container_name: campus-rabbitmq-sit
+    ports: !override
+      - "127.0.0.1:25672:15672"
+    mem_limit: 512m
+
+  gateway:
+    container_name: campus-gateway-sit
+    environment:
+      SPRING_PROFILES_ACTIVE: sit
+    ports: !override
+      - "18080:8080"
+    mem_limit: 768m
+
+  checkin-service:
+    container_name: campus-checkin-service-sit
+    environment:
+      SPRING_PROFILES_ACTIVE: sit
+    mem_limit: 512m
+
+  ai-service:
+    container_name: campus-ai-service-sit
+    environment:
+      SPRING_PROFILES_ACTIVE: sit
+    mem_limit: 768m
+
+  parent-service:
+    container_name: campus-parent-service-sit
+    environment:
+      SPRING_PROFILES_ACTIVE: sit
+    mem_limit: 512m
+
+  integration-service:
+    container_name: campus-integration-service-sit
+    environment:
+      SPRING_PROFILES_ACTIVE: sit
+    mem_limit: 512m

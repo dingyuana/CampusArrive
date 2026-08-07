@@ -1,0 +1,78 @@
+# =============================================================================
+# 微迎新 CampusArrive — MaxKB + PostgreSQL/pgvector 独立编排
+# 部署于服务器A (AI 专用)。与主编排共享 campus-ai 外部网络，供 ai-service 调用。
+#   maxkb            1panel/maxkb:latest        -> 宿主机 8088 (管理 UI)
+#   postgres-pgvector pgvector/pgvector:pg16     -> 5432 仅 campus-ai 内部
+# 网络：campus-ai (外部，由 deploy.sh 创建)
+# 数据卷统一挂载到 ./data/
+# =============================================================================
+name: campusarrive-maxkb
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "3"
+
+services:
+  # --------------------------------------------------------------------------
+  # MaxKB：知识库问答引擎（DeepSeek 作为后端 LLM，密钥在 MaxKB 控制台配置）
+  # --------------------------------------------------------------------------
+  maxkb:
+    image: 1panel/maxkb:latest
+    container_name: campus-maxkb
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_NAME: ${MAXKB_DB_NAME:-maxkb}
+      DB_HOST: postgres-pgvector
+      DB_PORT: 5432
+      DB_USER: ${MAXKB_DB_USER:-maxkb}
+      DB_PASSWORD: ${MAXKB_DB_PASSWORD}
+      MAXKB_PORT: 8080
+    ports:
+      - "8088:8080"               # MaxKB 管理 UI 对外端口
+    volumes:
+      - ./data/maxkb:/var/lib/maxkb
+    networks:
+      - campus-ai
+    depends_on:
+      postgres-pgvector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging: *default-logging
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL 16 + pgvector：MaxKB 的向量存储库（5432 仅内部网络）
+  # --------------------------------------------------------------------------
+  postgres-pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: campus-postgres-pgvector
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${MAXKB_DB_NAME:-maxkb}
+      POSTGRES_USER: ${MAXKB_DB_USER:-maxkb}
+      POSTGRES_PASSWORD: ${MAXKB_DB_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data/postgres-pgvector:/var/lib/postgresql/data
+    networks:
+      - campus-ai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+networks:
+  campus-ai:
+    external: true
+    name: campus-ai

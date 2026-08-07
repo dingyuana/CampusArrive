@@ -1,0 +1,316 @@
+# =============================================================================
+# 微迎新 CampusArrive — 主编排文件 (docker-compose.yml)
+# 覆盖：MySQL / Redis / RabbitMQ + 5 个微服务 (gateway/checkin/ai/parent/integration)
+# 网络分区：
+#   campus-frontend  接入区 — 仅 gateway，对外暴露 8080
+#   campus-backend   应用区 — 微服务 + 中间件 (Redis/RabbitMQ)，服务间互通
+#   campus-data      数据区 — MySQL 等，internal 网络禁止出站，仅接受应用区容器连接
+#   campus-ai        AI 区  — 外部网络，与 docker-compose.maxkb.yml 共享，供 ai-service 调用 MaxKB
+# 数据卷统一挂载到 ./data/ ；重启策略 unless-stopped；日志 json-file 限制 100m
+# 所有密钥通过 .env 注入，禁止硬编码。
+# =============================================================================
+name: campusarrive
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "3"
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  logging: *default-logging
+
+services:
+  # --------------------------------------------------------------------------
+  # 数据区：MySQL 8.0（仅 campus-data 内部网络，不映射宿主机端口）
+  # --------------------------------------------------------------------------
+  mysql:
+    <<: *service-defaults
+    image: mysql:8.0
+    container_name: campus-mysql
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+      --max-connections=200
+      --innodb-buffer-pool-size=512M
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - campus-data
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # --------------------------------------------------------------------------
+  # 应用区：Redis 7（仅 campus-backend 内部网络，不映射宿主机端口）
+  # --------------------------------------------------------------------------
+  redis:
+    <<: *service-defaults
+    image: redis:7-alpine
+    container_name: campus-redis
+    env_file: .env
+    command: ["sh", "-c", "redis-server --requirepass \"$${REDIS_PASSWORD}\" --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru"]
+    volumes:
+      - ./data/redis:/data
+    networks:
+      - campus-backend
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # --------------------------------------------------------------------------
+  # 应用区：RabbitMQ 3.13（AMQP 仅内部；15672 管理 UI 限本机访问）
+  # --------------------------------------------------------------------------
+  rabbitmq:
+    <<: *service-defaults
+    image: rabbitmq:3.13-management
+    container_name: campus-rabbitmq
+    env_file: .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-/}
+    ports:
+      - "127.0.0.1:15672:15672"   # 管理 UI 仅绑定本机回环，避免对外暴露
+    volumes:
+      - ./data/rabbitmq:/var/lib/rabbitmq
+    networks:
+      - campus-backend
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping && rabbitmq-diagnostics -q check_running"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # --------------------------------------------------------------------------
+  # 接入区：Spring Cloud Gateway（8080 对外暴露，唯一公开入口）
+  # --------------------------------------------------------------------------
+  gateway:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE_NAME: gateway
+    image: campusarrive/gateway:latest
+    container_name: campus-gateway
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-sit}
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+    ports:
+      - "8080:8080"               # 接入区唯一对外端口（生产由外层 nginx/LB 暴露 443/80）
+    networks:
+      - campus-frontend
+      - campus-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # --------------------------------------------------------------------------
+  # 应用区：checkin-service（8081 仅内部网络）
+  # --------------------------------------------------------------------------
+  checkin-service:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE_NAME: checkin-service
+    image: campusarrive/checkin-service:latest
+    container_name: campus-checkin-service
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-sit}
+      SERVER_PORT: 8081
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+    networks:
+      - campus-backend
+      - campus-data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # --------------------------------------------------------------------------
+  # 应用区：ai-service（8082 仅内部网络，经 campus-ai 调用 MaxKB）
+  # --------------------------------------------------------------------------
+  ai-service:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE_NAME: ai-service
+    image: campusarrive/ai-service:latest
+    container_name: campus-ai-service
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-sit}
+      SERVER_PORT: 8082
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MAXKB_BASE_URL: ${MAXKB_BASE_URL}
+      MAXKB_API_KEY: ${MAXKB_API_KEY}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      JWT_SECRET: ${JWT_SECRET}
+    networks:
+      - campus-backend
+      - campus-ai
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # --------------------------------------------------------------------------
+  # 应用区：parent-service（8083 仅内部网络）
+  # --------------------------------------------------------------------------
+  parent-service:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE_NAME: parent-service
+    image: campusarrive/parent-service:latest
+    container_name: campus-parent-service
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-sit}
+      SERVER_PORT: 8083
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+    networks:
+      - campus-backend
+      - campus-data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # --------------------------------------------------------------------------
+  # 应用区：integration-service（8084 仅内部网络，依赖 MySQL + RabbitMQ）
+  # --------------------------------------------------------------------------
+  integration-service:
+    <<: *service-defaults
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        SERVICE_NAME: integration-service
+    image: campusarrive/integration-service:latest
+    container_name: campus-integration-service
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-sit}
+      SERVER_PORT: 8084
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_DEFAULT_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS}
+      JWT_SECRET: ${JWT_SECRET}
+    networks:
+      - campus-backend
+      - campus-data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8084/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# =============================================================================
+# 网络定义（由 deploy.sh 预先以 `docker network create` 创建，此处声明为 external）
+# campus-data 使用 --internal，禁止数据区容器出站，强制仅接受应用区容器连接
+# =============================================================================
+networks:
+  campus-frontend:
+    external: true
+    name: campus-frontend
+  campus-backend:
+    external: true
+    name: campus-backend
+  campus-data:
+    external: true
+    name: campus-data
+  campus-ai:
+    external: true
+    name: campus-ai
