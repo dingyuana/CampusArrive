@@ -54,6 +54,13 @@
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
                     <version>0.8.12</version>
+                    <configuration>
+                        <!-- 排除 Spring Boot 启动类和纯配置类，它们无业务逻辑不应计入覆盖率 -->
+                        <excludes>
+                            <exclude>**/*Application.class</exclude>
+                            <exclude>**/config/**</exclude>
+                        </excludes>
+                    </configuration>
                     <executions>
                         <execution>
                             <id>prepare-agent</id>
