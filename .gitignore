@@ -9,6 +9,9 @@ target/
 mvnw
 mvnw.cmd
 
+# 本地构建工具（Maven 二进制等，不入版本库）
+.build-tools/
+
 # IDE
 .idea/
 *.iml
