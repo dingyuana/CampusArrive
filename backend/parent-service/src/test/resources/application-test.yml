@@ -8,6 +8,15 @@ spring:
     allow-bean-definition-overriding: true
   jackson:
     property-naming-strategy: SNAKE_CASE
+  # 测试环境不连接 RabbitMQ broker
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    listener:
+      simple:
+        auto-startup: false
 
 parent:
   jwt-secret: campus-arrive-parent-jwt-secret-key-2026-hs256-signing
@@ -20,3 +29,9 @@ parent:
   lock-duration-seconds: 1800
   rate-limit-window-seconds: 60
   rate-limit-max-requests: 1
+
+# 测试环境关闭 RabbitMQ 拓扑自动声明
+campusarrive:
+  rabbitmq:
+    topology:
+      enabled: false

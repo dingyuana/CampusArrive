@@ -23,7 +23,7 @@ public class PreRegistrationStore {
      * @param studentName  学生姓名（用于脱敏展示）
      */
     public void register(String phone, String studentId, String studentName) {
-        store.put(phone, new PreRegistration(studentId, studentName));
+        store.put(phone, new PreRegistration(phone, studentId, studentName));
     }
 
     /**
@@ -37,11 +37,35 @@ public class PreRegistrationStore {
     }
 
     /**
+     * 按学生 ID 反查预登记信息（PARENT-4.3 消息推送用）。
+     *
+     * @param studentId 学生 ID
+     * @return 预登记信息（含家长手机号与学生姓名），未找到返回 empty
+     */
+    public Optional<PreRegistration> findByStudentId(String studentId) {
+        return store.values().stream()
+                .filter(reg -> reg.studentId().equals(studentId))
+                .findFirst();
+    }
+
+    /**
+     * 按学生 ID 反查家长手机号（便捷方法）。
+     *
+     * @param studentId 学生 ID
+     * @return 家长手机号，未找到返回 empty
+     */
+    public Optional<String> findPhoneByStudentId(String studentId) {
+        return findByStudentId(studentId)
+                .map(PreRegistration::phone);
+    }
+
+    /**
      * 预登记信息记录。
      *
+     * @param phone        家长手机号
      * @param studentId    学生 ID
      * @param studentName  学生姓名
      */
-    public record PreRegistration(String studentId, String studentName) {
+    public record PreRegistration(String phone, String studentId, String studentName) {
     }
 }
