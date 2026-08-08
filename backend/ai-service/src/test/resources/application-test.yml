@@ -1,0 +1,10 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: ai-service
+  main:
+    allow-bean-definition-overriding: true
+  jackson:
+    property-naming-strategy: SNAKE_CASE
